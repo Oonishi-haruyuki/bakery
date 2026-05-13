@@ -65,6 +65,7 @@ const App: React.FC = () => {
   });
 
   const [dailyEvent, setDailyEvent] = useState<DailyEvent | null>(null);
+  const [showDailyModal, setShowDailyModal] = useState(false);
   const [loadingDaily, setLoadingDaily] = useState(false);
   const [showUpgrades, setShowUpgrades] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
@@ -85,8 +86,18 @@ const App: React.FC = () => {
       if (u) {
         const saved = await loadGameState(u.uid);
         if (saved) {
-          // Merge saved state with defaults to handle potential schema updates
-          setGameState(prev => ({ ...prev, ...saved }));
+          // Merge saved state with defaults to handle potential schema updates safely
+          setGameState(prev => ({ 
+            ...prev, 
+            ...saved,
+            ingredients: (saved.ingredients ? { ...prev.ingredients, ...saved.ingredients } : prev.ingredients),
+            ingredientLimits: (saved.ingredientLimits ? { ...prev.ingredientLimits, ...saved.ingredientLimits } : prev.ingredientLimits),
+            inventory: (saved.inventory ? { ...prev.inventory, ...saved.inventory } : prev.inventory),
+            upgrades: (saved.upgrades ? { ...prev.upgrades, ...saved.upgrades } : prev.upgrades),
+            bakingStatus: (saved.bakingStatus ? { ...prev.bakingStatus, ...saved.bakingStatus } : prev.bakingStatus),
+            reviews: saved.reviews || prev.reviews,
+            latestReviews: saved.latestReviews || prev.latestReviews,
+          } as GameState));
           addLog("データの同期が完了しました。");
         }
       }
@@ -409,17 +420,39 @@ const App: React.FC = () => {
 
   const prepareDay = async (targetDay: number) => {
     setLoadingDaily(true);
-    const wages = gameState.upgrades.staff * DAILY_WAGE_PER_STAFF;
-    if (wages > 0) addLog(`経費支払い: アルバイト ${gameState.upgrades.staff}人分の給与 ¥${wages.toLocaleString()} を支払いました`);
-    setGameState(prev => ({ ...prev, isShopOpen: false, allMissionsBonusClaimed: false, dailyEarnings: 0, money: prev.money - wages }));
-    const report = await generateDailyReport(targetDay, gameState.shopLevel);
-    setDailyEvent(report);
-    setGameState(prev => ({ ...prev, day: targetDay, currentMissions: report.missions }));
-    setLoadingDaily(false);
+    try {
+      const currentStaff = stateRef.current.upgrades.staff;
+      const wages = currentStaff * DAILY_WAGE_PER_STAFF;
+      if (wages > 0) addLog(`経費支払い: アルバイト ${currentStaff}人分の給与 ¥${wages.toLocaleString()} を支払いました`);
+      
+      setGameState(prev => ({ 
+        ...prev, 
+        isShopOpen: false, 
+        allMissionsBonusClaimed: false, 
+        dailyEarnings: 0, 
+        money: prev.money - wages 
+      }));
+
+      const report = await generateDailyReport(targetDay, stateRef.current.shopLevel);
+      setDailyEvent(report);
+      setShowDailyModal(true);
+      setGameState(prev => ({ ...prev, day: targetDay, currentMissions: report.missions }));
+    } catch (error) {
+      console.error("Preparation error:", error);
+      addLog("エラー: 次の日の準備に失敗しました。もう一度試してください。");
+      // Fallback: at least allow moving to the next day if the AI fails
+      setGameState(prev => ({ ...prev, day: targetDay, isShopOpen: false }));
+    } finally {
+      setLoadingDaily(false);
+    }
   };
 
   const startNextDay = () => prepareDay(gameState.day + 1);
-  const openShop = () => { setGameState(prev => ({ ...prev, isShopOpen: true })); addLog("開店: お店をオープンしました！"); };
+  const openShop = () => { 
+    setGameState(prev => ({ ...prev, isShopOpen: true })); 
+    setShowDailyModal(false);
+    addLog("開店: お店をオープンしました！"); 
+  };
   
   const closeShopEarly = async () => { 
     if (!gameState.isShopOpen) return;
@@ -528,7 +561,7 @@ const App: React.FC = () => {
             </h2>
         </div>
       )}
-      {dailyEvent && !loadingDaily && <DailyModal event={dailyEvent} onClose={openShop} />}
+      {dailyEvent && showDailyModal && !loadingDaily && <DailyModal event={dailyEvent} onClose={openShop} />}
       {showUpgrades && <UpgradeModal currentMoney={gameState.money} upgrades={gameState.upgrades} onBuy={buyUpgrade} onClose={() => setShowUpgrades(false)} />}
       {showReviews && <ReviewsModal reviews={gameState.latestReviews.length > 0 ? gameState.latestReviews : gameState.reviews} onClose={() => setShowReviews(false)} />}
 
