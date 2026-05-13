@@ -16,7 +16,7 @@ import UpgradeModal from './components/UpgradeModal';
 import ReviewsModal from './components/ReviewsModal';
 import Bakery3DScene from './components/Bakery3DScene';
 import { generateDailyReport, generateCustomerReviews } from './services/geminiService';
-import { auth, loginWithGoogle, saveGameState, loadGameState } from './services/firebaseService';
+import { auth, loginWithGoogle, saveGameState, loadGameState, testConnection } from './services/firebaseService';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { 
   GameState, 
@@ -26,43 +26,47 @@ import {
   UpgradeStats,
   DailyMission
 } from './types';
-import { INGREDIENTS_DATA, RECIPES, INITIAL_MONEY, getLevelUpThreshold, DAILY_WAGE_PER_STAFF, UPGRADES_DATA } from './constants';
+import { INGREDIENTS_DATA, RECIPES, INITIAL_MONEY, getLevelUpThreshold, WAGE_PER_15_MIN_PER_STAFF, UPGRADES_DATA } from './constants';
+
+const INITIAL_GAME_STATE: GameState = {
+  money: INITIAL_MONEY,
+  day: 1,
+  dailyEarnings: 0,
+  reputation: 10,
+  shopLevel: 1,
+  levelProgressSales: 0,
+  ingredients: {
+    [IngredientType.FLOUR]: 100, [IngredientType.SUGAR]: 100, [IngredientType.BUTTER]: 100,
+    [IngredientType.YEAST]: 100, [IngredientType.MILK]: 100, [IngredientType.EGGS]: 100,
+    [IngredientType.SALT]: 100, [IngredientType.CHOCO]: 100, [IngredientType.ANKO]: 100,
+    [IngredientType.CURRY]: 100, [IngredientType.VEGETABLES]: 100, [IngredientType.MEAT]: 100,
+    [IngredientType.FISH]: 100,
+  },
+  ingredientLimits: {
+    [IngredientType.FLOUR]: 200, [IngredientType.SUGAR]: 200, [IngredientType.BUTTER]: 200,
+    [IngredientType.YEAST]: 200, [IngredientType.MILK]: 200, [IngredientType.EGGS]: 200,
+    [IngredientType.SALT]: 200, [IngredientType.CHOCO]: 200, [IngredientType.ANKO]: 200,
+    [IngredientType.CURRY]: 200, [IngredientType.VEGETABLES]: 200, [IngredientType.MEAT]: 200,
+    [IngredientType.FISH]: 200,
+  },
+  inventory: Object.values(BreadType).reduce((acc, type) => ({ ...acc, [type]: 0 }), {} as Record<BreadType, number>),
+  isShopOpen: false,
+  bakingStatus: Object.values(BreadType).reduce((acc, type) => ({ ...acc, [type]: null }), {} as Record<BreadType, number | null>),
+  upgrades: { speed: 0, batch: 0, promo: 0, branches: 1, eatIn: 0, staff: 0, brand: 0 },
+  currentMissions: [],
+  allMissionsBonusClaimed: false,
+  isFeverMode: false,
+  feverEndTime: null,
+  reviews: [],
+  latestReviews: [],
+  currentDayOpenTime: 0,
+  lastOpenTimestamp: null
+};
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [gameState, setGameState] = useState<GameState>({
-    money: INITIAL_MONEY,
-    day: 1,
-    dailyEarnings: 0,
-    reputation: 10,
-    shopLevel: 1,
-    levelProgressSales: 0,
-    ingredients: {
-      [IngredientType.FLOUR]: 100, [IngredientType.SUGAR]: 100, [IngredientType.BUTTER]: 100,
-      [IngredientType.YEAST]: 100, [IngredientType.MILK]: 100, [IngredientType.EGGS]: 100,
-      [IngredientType.SALT]: 100, [IngredientType.CHOCO]: 100, [IngredientType.ANKO]: 100,
-      [IngredientType.CURRY]: 100, [IngredientType.VEGETABLES]: 100, [IngredientType.MEAT]: 100,
-      [IngredientType.FISH]: 100,
-    },
-    ingredientLimits: {
-      [IngredientType.FLOUR]: 200, [IngredientType.SUGAR]: 200, [IngredientType.BUTTER]: 200,
-      [IngredientType.YEAST]: 200, [IngredientType.MILK]: 200, [IngredientType.EGGS]: 200,
-      [IngredientType.SALT]: 200, [IngredientType.CHOCO]: 200, [IngredientType.ANKO]: 200,
-      [IngredientType.CURRY]: 200, [IngredientType.VEGETABLES]: 200, [IngredientType.MEAT]: 200,
-      [IngredientType.FISH]: 200,
-    },
-    inventory: Object.values(BreadType).reduce((acc, type) => ({ ...acc, [type]: 0 }), {} as Record<BreadType, number>),
-    isShopOpen: false,
-    bakingStatus: Object.values(BreadType).reduce((acc, type) => ({ ...acc, [type]: null }), {} as Record<BreadType, number | null>),
-    upgrades: { speed: 0, batch: 0, promo: 0, branches: 1, eatIn: 0, staff: 0, brand: 0 },
-    currentMissions: [],
-    allMissionsBonusClaimed: false,
-    isFeverMode: false,
-    feverEndTime: null,
-    reviews: [],
-    latestReviews: []
-  });
+  const [gameState, setGameState] = useState<GameState>(INITIAL_GAME_STATE);
 
   const [dailyEvent, setDailyEvent] = useState<DailyEvent | null>(null);
   const [showDailyModal, setShowDailyModal] = useState(false);
@@ -72,6 +76,7 @@ const App: React.FC = () => {
   const [isGeneratingReviews, setIsGeneratingReviews] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [lastSale, setLastSale] = useState<{ id: number; bread: BreadType; timestamp: number } | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<'testing' | 'online' | 'offline'>('testing');
   const addLog = (msg: string) => setLogs(prev => [msg, ...prev].slice(0, 50));
 
   const stateRef = useRef(gameState);
@@ -79,6 +84,17 @@ const App: React.FC = () => {
   
   useEffect(() => { stateRef.current = gameState; }, [gameState]);
   useEffect(() => { eventRef.current = dailyEvent; }, [dailyEvent]);
+
+  useEffect(() => {
+    const checkConnection = async () => {
+      const success = await testConnection();
+      setConnectionStatus(success ? 'online' : 'offline');
+      if (!success) {
+        addLog("警告: サーバーに接続できません。オフラインモードで動作中。");
+      }
+    };
+    checkConnection();
+  }, []);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
@@ -421,16 +437,27 @@ const App: React.FC = () => {
   const prepareDay = async (targetDay: number) => {
     setLoadingDaily(true);
     try {
-      const currentStaff = stateRef.current.upgrades.staff;
-      const wages = currentStaff * DAILY_WAGE_PER_STAFF;
-      if (wages > 0) addLog(`経費支払い: アルバイト ${currentStaff}人分の給与 ¥${wages.toLocaleString()} を支払いました`);
+      const { upgrades, currentDayOpenTime } = stateRef.current;
+      const currentStaff = upgrades.staff;
+      
+      // Calculate wages based on 15-minute units (round up)
+      const fifteenMinMs = 15 * 60 * 1000;
+      const units = Math.ceil(currentDayOpenTime / fifteenMinMs);
+      const wages = currentStaff * units * WAGE_PER_15_MIN_PER_STAFF;
+      
+      if (wages > 0) {
+        const minutes = Math.floor(currentDayOpenTime / 1000 / 60);
+        addLog(`経費支払い: アルバイト ${currentStaff}人分の給与 ¥${wages.toLocaleString()} (${minutes}分稼働, ${units}ユニット分) を支払いました`);
+      }
       
       setGameState(prev => ({ 
         ...prev, 
         isShopOpen: false, 
         allMissionsBonusClaimed: false, 
         dailyEarnings: 0, 
-        money: prev.money - wages 
+        money: prev.money - wages,
+        currentDayOpenTime: 0, // Reset for the next day
+        lastOpenTimestamp: null
       }));
 
       const report = await generateDailyReport(targetDay, stateRef.current.shopLevel);
@@ -448,8 +475,35 @@ const App: React.FC = () => {
   };
 
   const startNextDay = () => prepareDay(gameState.day + 1);
+  const resetGame = async () => {
+    if (!window.confirm("これまでの進捗がすべて削除されます。本当に最初からやり直しますか？")) return;
+    
+    // Reset state locally first to ensure INITIAL_GAME_STATE is used
+    setGameState(INITIAL_GAME_STATE);
+    setDailyEvent(null);
+    setShowDailyModal(false);
+    setShowReviews(false);
+    setShowUpgrades(false);
+    
+    addLog("システム: データをすべてリセットし、初日から再スタートします。");
+    
+    if (user) {
+      await saveGameState(user.uid, INITIAL_GAME_STATE);
+    }
+
+    // Force prepare day 1 with logic that doesn't depend on stale ref if possible
+    // or just let the setGameState settle.
+    // Actually, calling prepareDay(1) is fine as long as we know it might use slightly stale data for wages (which is 0 anyway for new game)
+    setTimeout(() => {
+      prepareDay(1);
+    }, 100);
+  };
   const openShop = () => { 
-    setGameState(prev => ({ ...prev, isShopOpen: true })); 
+    setGameState(prev => ({ 
+      ...prev, 
+      isShopOpen: true,
+      lastOpenTimestamp: Date.now()
+    })); 
     setShowDailyModal(false);
     addLog("開店: お店をオープンしました！"); 
   };
@@ -475,13 +529,17 @@ const App: React.FC = () => {
       dailyEvent?.trend || null
     );
 
+    const elapsed = gameState.lastOpenTimestamp ? Date.now() - gameState.lastOpenTimestamp : 0;
+
     setGameState(prev => ({ 
       ...prev, 
       isShopOpen: false, 
       isFeverMode: false, 
       feverEndTime: null,
       reviews: [...newReviews, ...prev.reviews].slice(0, 50),
-      latestReviews: newReviews
+      latestReviews: newReviews,
+      currentDayOpenTime: prev.currentDayOpenTime + elapsed,
+      lastOpenTimestamp: null
     })); 
     
     setIsGeneratingReviews(false);
@@ -581,6 +639,25 @@ const App: React.FC = () => {
                 </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-4">
+                <div 
+                  onClick={() => {
+                    if (connectionStatus !== 'online') {
+                      setConnectionStatus('testing');
+                      const check = async () => {
+                        const success = await testConnection();
+                        setConnectionStatus(success ? 'online' : 'offline');
+                        if (success) addLog("システム: サーバーに再接続しました。");
+                      };
+                      check();
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 px-3 py-1 bg-white border border-stone-100 rounded-full shadow-sm cursor-pointer hover:bg-stone-50 active:scale-95 transition-all`}
+                >
+                  <div className={`w-2 h-2 rounded-full ${connectionStatus === 'online' ? 'bg-green-500' : connectionStatus === 'offline' ? 'bg-red-500 animate-pulse' : 'bg-amber-300 animate-spin'}`} />
+                  <span className="text-[9px] font-bold text-stone-500 font-mono uppercase tracking-tighter">
+                    {connectionStatus === 'online' ? 'Online' : connectionStatus === 'offline' ? 'Offline (Retry?)' : 'Syncing'}
+                  </span>
+                </div>
                 <div className="flex flex-col items-center bg-amber-100 px-4 py-1 rounded-xl border border-amber-200 shadow-inner">
                   <span className="text-[8px] text-amber-600 font-bold uppercase tracking-tighter">Current Day</span>
                   <div className="text-amber-900 text-sm sm:text-base font-black tracking-tighter leading-none">{gameState.day}<span className="text-[10px] ml-0.5">日目</span></div>
@@ -664,7 +741,7 @@ const App: React.FC = () => {
                 </div>
             </section>
 
-            <section className="bg-white rounded-2xl shadow-sm border border-amber-100 p-5 hidden md:block overflow-hidden h-[30vh]">
+            <section className="bg-white rounded-2xl shadow-sm border border-amber-100 p-5 md:block overflow-hidden h-[30vh]">
                 <h2 className="text-xs font-bold text-amber-900 mb-2 flex items-center gap-2 uppercase tracking-widest opacity-50">Log Feed</h2>
                 <div className="space-y-1 h-full overflow-y-auto custom-scrollbar pr-2">
                   {logs.map((log, i) => (
@@ -730,6 +807,13 @@ const App: React.FC = () => {
                               お客様の口コミを見る
                             </button>
                           )}
+                          <button 
+                            onClick={resetGame}
+                            className="w-full py-2 bg-stone-50 hover:bg-stone-100 text-stone-400 hover:text-red-500 font-medium rounded-xl text-[10px] border border-stone-100 transition-all flex items-center justify-center gap-1 mt-4 opacity-50 hover:opacity-100"
+                          >
+                            <Icons.RotateCcw className="w-3 h-3" />
+                            データを初期化して最初から
+                          </button>
                         </>
                     )}
                 </div>

@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import { 
-  getFirestore, 
+  initializeFirestore,
   doc, 
   getDoc, 
   setDoc, 
@@ -13,7 +13,12 @@ import firebaseConfig from '../firebase-applet-config.json';
 import { GameState } from '../types';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+
+// Use initializeFirestore with long polling to bypass potential proxy issues
+export const db = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+}, firebaseConfig.firestoreDatabaseId);
+
 export const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 
@@ -75,12 +80,23 @@ export async function loginWithGoogle() {
 }
 
 export async function testConnection() {
+  console.log("Checking Firestore connection...");
   try {
+    // Attempt a real server read to verify connectivity
     await getDocFromServer(doc(db, 'test', 'connection'));
+    console.log("Firestore connection test: SUCCESS");
+    return true;
   } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
+    console.warn("Firestore connection test: FAILED", error);
+    if (error instanceof Error) {
+      if (error.message.includes('the client is offline')) {
+        console.error("Diagnostic: Client reported as offline.");
+      }
+      if (error.message.includes('unavailable')) {
+        console.error("Diagnostic: Service unavailable. This is often a network/proxy issue.");
+      }
     }
+    return false;
   }
 }
 

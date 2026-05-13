@@ -2,7 +2,7 @@ import { BreadType, IngredientType, BreadRecipe, Ingredient } from './types';
 
 export const INITIAL_MONEY = 100000;
 export const MAX_SHOP_LEVEL = 50;
-export const DAILY_WAGE_PER_STAFF = 5000; // 1人あたりの日当
+export const WAGE_PER_15_MIN_PER_STAFF = 1250; // 1人あたりの15分ごとの給与
 
 // Calculate sales count needed to reach the NEXT level from current level
 export const getLevelUpThreshold = (currentLevel: number): number => {

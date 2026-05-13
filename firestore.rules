@@ -66,6 +66,10 @@ service cloud.firestore {
                     incoming().diff(existing()).affectedKeys().hasOnly(['displayName']);
     }
 
+    match /test/connection {
+      allow get: if true;
+    }
+
     match /gameStates/{userId} {
       allow get: if isOwner(userId);
       allow create: if isOwner(userId) && isValidGameState(incoming());

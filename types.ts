@@ -117,4 +117,6 @@ export interface GameState {
   feverEndTime: number | null;
   reviews: Review[];
   latestReviews: Review[];
+  currentDayOpenTime: number; // New: Total time shop was open this day (ms)
+  lastOpenTimestamp: number | null; // New: When the shop was last opened
 }

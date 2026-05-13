@@ -216,29 +216,50 @@ const BreadMesh: React.FC<{ type: BreadType }> = ({ type }) => {
 
 const EatInFurniture: React.FC<{ position: [number, number, number] }> = ({ position }) => (
   <group position={position}>
-    <mesh position={[0, 0.45, 0]} castShadow receiveShadow>
-      <cylinderGeometry args={[0.6, 0.6, 0.05, 16]} />
-      <meshStandardMaterial color="#5d4037" />
+    {/* Table Top */}
+    <mesh position={[0, 0.55, 0]} castShadow receiveShadow>
+      <cylinderGeometry args={[0.7, 0.7, 0.06, 32]} />
+      <meshStandardMaterial color="#5d4037" roughness={0.6} metalness={0.1} />
     </mesh>
-    <mesh position={[0, 0.22, 0]} castShadow>
-      <cylinderGeometry args={[0.05, 0.1, 0.45, 8]} />
+    {/* Table Leg */}
+    <mesh position={[0, 0.28, 0]} castShadow>
+      <cylinderGeometry args={[0.06, 0.06, 0.55, 16]} />
       <meshStandardMaterial color="#3e2723" />
     </mesh>
-    {[0, Math.PI].map((rot, i) => (
-      <group key={i} rotation={[0, rot, 0]} position={[0, 0, 0]}>
-        <group position={[0, 0, 0.8]}>
-          <mesh position={[0, 0.25, 0]} castShadow>
-            <boxGeometry args={[0.4, 0.05, 0.4]} />
+    {/* Table Base */}
+    <mesh position={[0, 0.02, 0]} castShadow>
+      <cylinderGeometry args={[0.3, 0.35, 0.04, 16]} />
+      <meshStandardMaterial color="#3e2723" />
+    </mesh>
+    
+    {/* Chairs (4 chairs around the table) */}
+    {[0, Math.PI / 2, Math.PI, Math.PI * 1.5].map((rot, i) => (
+      <group key={i} rotation={[0, rot, 0]}>
+        <group position={[0, 0, 0.9]}>
+          {/* Seat */}
+          <mesh position={[0, 0.3, 0]} castShadow>
+            <boxGeometry args={[0.45, 0.06, 0.45]} />
+            <meshStandardMaterial color="#795548" roughness={0.8} />
+          </mesh>
+          {/* Chair Legs */}
+          {[[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]].map(([lx, lz], j) => (
+            <mesh key={j} position={[lx, 0.15, lz]} castShadow>
+              <cylinderGeometry args={[0.02, 0.02, 0.3, 8]} />
+              <meshStandardMaterial color="#4e342e" />
+            </mesh>
+          ))}
+          {/* Backrest */}
+          <mesh position={[0, 0.6, 0.2]} rotation={[-0.1, 0, 0]} castShadow>
+            <boxGeometry args={[0.45, 0.4, 0.05]} />
             <meshStandardMaterial color="#795548" />
           </mesh>
-          <mesh position={[0, 0.12, 0]} castShadow>
-            <boxGeometry args={[0.35, 0.25, 0.35]} />
-            <meshStandardMaterial color="#4e342e" />
-          </mesh>
-          <mesh position={[0, 0.5, 0.18]} castShadow>
-            <boxGeometry args={[0.4, 0.4, 0.05]} />
-            <meshStandardMaterial color="#795548" />
-          </mesh>
+          {/* Backrest Supports */}
+          {[-0.15, 0.15].map((sx, j) => (
+            <mesh key={j} position={[sx, 0.45, 0.18]} castShadow>
+              <cylinderGeometry args={[0.02, 0.02, 0.3, 8]} />
+              <meshStandardMaterial color="#4e342e" />
+            </mesh>
+          ))}
         </group>
       </group>
     ))}
@@ -284,7 +305,7 @@ const Bakery3DScene: React.FC<SceneProps> = ({
   const counterBreads = availableBreads.slice(0, 4);
   const shelfBreads = availableBreads.slice(4, 12);
 
-  const eatInSets = Math.min(4, Math.floor(eatInLevel / 5));
+  const eatInSets = Math.min(4, eatInLevel);
 
   // Safety check for Canvas which might be undefined if @react-three/fiber failed to load
   if (!Canvas) {
@@ -327,10 +348,13 @@ const Bakery3DScene: React.FC<SceneProps> = ({
 
       {/* Eat-in Area */}
       {eatInSets > 0 && (
-        <group position={[0, 0, 5]}>
-          {Array.from({ length: eatInSets }).map((_, i) => (
-            <EatInFurniture key={i} position={[(i % 2 === 0 ? -2.5 : 2.5), 0, Math.floor(i / 2) * 2]} />
-          ))}
+        <group position={[0, 0, 4.5]}>
+          {Array.from({ length: eatInSets }).map((_, i) => {
+            // Arrange tables in a 2x2 grid if max 4
+            const xPos = (i % 2 === 0 ? -3 : 3);
+            const zPos = Math.floor(i / 2) * 3;
+            return <EatInFurniture key={i} position={[xPos, 0, zPos]} />;
+          })}
         </group>
       )}
 

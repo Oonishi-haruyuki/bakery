@@ -19,7 +19,8 @@ import {
   Building2,
   Coffee,
   Loader2,
-  MessageSquare
+  MessageSquare,
+  RotateCcw
 } from 'lucide-react';
 
 export const WheatIcon = Wheat;
@@ -43,6 +44,7 @@ export const Building2Icon = Building2;
 export const CoffeeIcon = Coffee;
 export const Loader2Icon = Loader2;
 export const MessageSquareIcon = MessageSquare;
+export const RotateCcwIcon = RotateCcw;
 
 // Keep Icons object for backward compatibility but use the icon components explicitly
 export const Icons = {
@@ -66,5 +68,6 @@ export const Icons = {
   Building2: Building2Icon,
   Coffee: CoffeeIcon,
   Loader2: Loader2Icon,
-  MessageSquare: MessageSquareIcon
+  MessageSquare: MessageSquareIcon,
+  RotateCcw: RotateCcwIcon
 };
