@@ -104,4 +104,6 @@ export interface GameState {
   upgrades: UpgradeStats;
   currentMissions: DailyMission[];
   allMissionsBonusClaimed: boolean;
+  isFeverMode: boolean;
+  feverEndTime: number | null;
 }

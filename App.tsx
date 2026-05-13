@@ -57,7 +57,9 @@ const App: React.FC = () => {
     bakingStatus: Object.values(BreadType).reduce((acc, type) => ({ ...acc, [type]: null }), {} as Record<BreadType, number | null>),
     upgrades: { speed: 0, batch: 0, promo: 0, branches: 1, eatIn: 0, staff: 0, brand: 0 },
     currentMissions: [],
-    allMissionsBonusClaimed: false
+    allMissionsBonusClaimed: false,
+    isFeverMode: false,
+    feverEndTime: null
   });
 
   const [dailyEvent, setDailyEvent] = useState<DailyEvent | null>(null);
@@ -115,7 +117,7 @@ const App: React.FC = () => {
     });
     let allBonus = nextMissions.length > 0 && nextMissions.every(m => m.isCleared) && !nextMissions.every((m, i) => prevMissions[i].isCleared);
     if (allBonus) {
-        addLog(`全ミッション達成ボーナス！ (報酬: ¥150,000)`);
+        addLog(`全ミッション達成ボーナス！ (報酬: ¥150,000) & フィーバータイム開始！`);
         extraMoney += 150000;
     }
     return { missions: nextMissions, reward: extraMoney, allBonus };
@@ -149,7 +151,9 @@ const App: React.FC = () => {
         money: prev.money - totalCost + reward,
         ingredients: { ...prev.ingredients, [type]: currentStock + possibleAmount },
         currentMissions: missions,
-        allMissionsBonusClaimed: prev.allMissionsBonusClaimed || allBonus
+        allMissionsBonusClaimed: prev.allMissionsBonusClaimed || allBonus,
+        isFeverMode: prev.isFeverMode || allBonus,
+        feverEndTime: allBonus ? Date.now() + 180000 : prev.feverEndTime
       };
     });
   };
@@ -301,7 +305,16 @@ const App: React.FC = () => {
                 const { missions, reward, allBonus } = processMissionUpdates(nextMissions, 'bake_bread', bakedType, bakedCount, prev.dailyEarnings);
                 nextMissions = missions; totalReward += reward; if (allBonus) finalAllBonus = true;
             }
-            return { ...prev, bakingStatus: nextBakingStatus, inventory: nextInventory, currentMissions: nextMissions, money: prev.money + totalReward, allMissionsBonusClaimed: finalAllBonus };
+            return { 
+              ...prev, 
+              bakingStatus: nextBakingStatus, 
+              inventory: nextInventory, 
+              currentMissions: nextMissions, 
+              money: prev.money + totalReward, 
+              allMissionsBonusClaimed: finalAllBonus,
+              isFeverMode: prev.isFeverMode || finalAllBonus,
+              feverEndTime: (finalAllBonus && !prev.allMissionsBonusClaimed) ? Date.now() + 180000 : prev.feverEndTime
+            };
         }
         return prev;
       });
@@ -331,6 +344,7 @@ const App: React.FC = () => {
             const recipe = RECIPES[breadToSell];
             let sellChance = (0.3 + (prev.reputation / 200)) * (1 + (prev.upgrades.promo * 0.05));
             if (dailyEvent) { sellChance *= dailyEvent.salesModifier; if (dailyEvent.trend === breadToSell) sellChance *= 1.5; }
+            if (prev.isFeverMode) { sellChance *= 1.5; }
             
             if (Math.random() < sellChance) {
                 let price = recipe.basePrice;
@@ -365,7 +379,9 @@ const App: React.FC = () => {
           levelProgressSales: prev.levelProgressSales + totalProgressGained, 
           inventory: currentInventory, 
           currentMissions: nextMissions, 
-          allMissionsBonusClaimed: prev.allMissionsBonusClaimed || allBonus 
+          allMissionsBonusClaimed: prev.allMissionsBonusClaimed || allBonus,
+          isFeverMode: prev.isFeverMode || allBonus,
+          feverEndTime: (allBonus && !prev.allMissionsBonusClaimed) ? Date.now() + 180000 : prev.feverEndTime
         };
       });
     }, 1000); 
@@ -386,10 +402,22 @@ const App: React.FC = () => {
   const startNextDay = () => prepareDay(gameState.day + 1);
   const openShop = () => { setGameState(prev => ({ ...prev, isShopOpen: true })); setDailyEvent(null); addLog("開店: お店をオープンしました！"); };
   const closeShopEarly = () => { 
-    setGameState(prev => ({ ...prev, isShopOpen: false })); 
+    setGameState(prev => ({ ...prev, isShopOpen: false, isFeverMode: false, feverEndTime: null })); 
     addLog("閉店: 本日の営業を終了しました。"); 
     if (user) saveGameState(user.uid, gameState);
   };
+
+  useEffect(() => {
+    if (!gameState.isFeverMode || !gameState.feverEndTime) return;
+    const interval = setInterval(() => {
+      if (Date.now() >= (gameState.feverEndTime || 0)) {
+        setGameState(prev => ({ ...prev, isFeverMode: false, feverEndTime: null }));
+        addLog("フィーバータイムが終了しました。");
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [gameState.isFeverMode, gameState.feverEndTime]);
+
   useEffect(() => { if (gameState.day === 1 && !dailyEvent && !gameState.isShopOpen && !authLoading) prepareDay(1); }, [authLoading]);
 
   const progressPercent = Math.min(100, (gameState.levelProgressSales / getLevelUpThreshold(gameState.shopLevel)) * 100);
@@ -454,8 +482,17 @@ const App: React.FC = () => {
       <header className="sticky top-0 z-10 bg-white/90 backdrop-blur-md border-b border-amber-200 shadow-sm px-4 py-3">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
             <div className="flex items-center gap-2">
-                <div className="bg-amber-500 p-2 rounded-lg text-white shadow-sm"><Store className="w-5 h-5 sm:w-6 sm:h-6" /></div>
-                <div><h1 className="font-bold text-amber-900 leading-tight text-xs sm:text-lg text-nowrap">小麦の詩</h1></div>
+                <div className={`p-2 rounded-lg text-white shadow-sm transition-colors duration-500 ${gameState.isFeverMode ? 'bg-gradient-to-br from-red-500 via-orange-400 to-yellow-500 animate-pulse' : 'bg-amber-500'}`}>
+                  <Store className="w-5 h-5 sm:w-6 sm:h-6" />
+                </div>
+                <div>
+                  <h1 className="font-bold text-amber-900 leading-tight text-xs sm:text-lg text-nowrap flex items-center gap-2">
+                    小麦の詩
+                    {gameState.isFeverMode && (
+                      <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full animate-bounce shadow-orange-500 shadow-sm">FEVER!!</span>
+                    )}
+                  </h1>
+                </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-4">
                 <div className="flex flex-col items-center bg-amber-100 px-4 py-1 rounded-xl border border-amber-200 shadow-inner">
