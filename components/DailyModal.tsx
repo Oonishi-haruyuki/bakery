@@ -1,5 +1,5 @@
 import React from 'react';
-import { DailyEvent, BreadType } from '../types';
+import { DailyEvent } from '../types';
 import { 
   SunIcon as Sun,
   CloudRainIcon as CloudRain,

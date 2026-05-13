@@ -89,6 +89,15 @@ export interface UpgradeStats {
   brand: number; // New: Brand power for faster leveling
 }
 
+export interface Review {
+  id: string;
+  customerName: string;
+  rating: number;
+  comment: string;
+  breadType?: BreadType;
+  date: number;
+}
+
 export interface GameState {
   money: number;
   day: number;
@@ -106,4 +115,6 @@ export interface GameState {
   allMissionsBonusClaimed: boolean;
   isFeverMode: boolean;
   feverEndTime: number | null;
+  reviews: Review[];
+  latestReviews: Review[];
 }

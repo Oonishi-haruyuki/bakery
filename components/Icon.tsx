@@ -1,4 +1,3 @@
-import React from 'react';
 import { 
   Wheat, 
   Coins, 
@@ -18,7 +17,9 @@ import {
   PackagePlus,
   Megaphone,
   Building2,
-  Coffee
+  Coffee,
+  Loader2,
+  MessageSquare
 } from 'lucide-react';
 
 export const WheatIcon = Wheat;
@@ -40,6 +41,8 @@ export const PackagePlusIcon = PackagePlus;
 export const MegaphoneIcon = Megaphone;
 export const Building2Icon = Building2;
 export const CoffeeIcon = Coffee;
+export const Loader2Icon = Loader2;
+export const MessageSquareIcon = MessageSquare;
 
 // Keep Icons object for backward compatibility but use the icon components explicitly
 export const Icons = {
@@ -61,5 +64,7 @@ export const Icons = {
   PackagePlus: PackagePlusIcon,
   Megaphone: MegaphoneIcon,
   Building2: Building2Icon,
-  Coffee: CoffeeIcon
+  Coffee: CoffeeIcon,
+  Loader2: Loader2Icon,
+  MessageSquare: MessageSquareIcon
 };

@@ -7,7 +7,9 @@ import { BreadType } from '../types';
 import { RECIPES } from '../constants';
 
 declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
   namespace JSX {
+    // eslint-disable-next-line @typescript-eslint/no-empty-object-type
     interface IntrinsicElements extends ThreeElements {}
   }
 }
@@ -80,6 +82,14 @@ const StaffMember: React.FC<{ position: [number, number, number], index: number 
   const leftArmRef = useRef<THREE.Mesh>(null);
   const rightArmRef = useRef<THREE.Mesh>(null);
 
+  const apronColors = ['#4b5563', '#1e40af', '#166534', '#991b1b', '#854d0e', '#3730a3'];
+  const skinColors = ['#ffdec7', '#e5c298', '#8d5524', '#c68642', '#f1c27d'];
+  const hairColors = ['#27272a', '#44403c', '#78350f', '#fbbf24', '#d4d4d8'];
+  
+  const apronColor = apronColors[index % apronColors.length];
+  const skinColor = skinColors[index % skinColors.length];
+  const hairColor = hairColors[index % hairColors.length];
+
   useFrame((state) => {
     if (groupRef.current) {
       const time = state.clock.getElapsedTime();
@@ -98,34 +108,42 @@ const StaffMember: React.FC<{ position: [number, number, number], index: number 
       {/* Staff Body (Apron/Uniform) */}
       <mesh position={[0, 0.6, 0]} castShadow>
         <capsuleGeometry args={[0.25, 0.5, 4, 8]} />
-        <meshStandardMaterial color="#4b5563" />
+        <meshStandardMaterial color={apronColor} />
       </mesh>
       
       {/* Arms */}
       <mesh ref={leftArmRef} position={[-0.35, 0.7, 0]} castShadow>
         <capsuleGeometry args={[0.08, 0.3, 4, 8]} />
-        <meshStandardMaterial color="#ffdec7" />
+        <meshStandardMaterial color={skinColor} />
       </mesh>
       <mesh ref={rightArmRef} position={[0.35, 0.7, 0]} castShadow>
         <capsuleGeometry args={[0.08, 0.3, 4, 8]} />
-        <meshStandardMaterial color="#ffdec7" />
+        <meshStandardMaterial color={skinColor} />
       </mesh>
 
       {/* Staff Head */}
       <mesh position={[0, 1.15, 0]} castShadow>
         <sphereGeometry args={[0.22, 16, 16]} />
-        <meshStandardMaterial color="#ffdec7" />
+        <meshStandardMaterial color={skinColor} />
+      </mesh>
+
+      {/* Hair */}
+      <mesh position={[0, 1.25, 0]}>
+        <sphereGeometry args={[0.23, 16, 16, 0, Math.PI * 2, 0, Math.PI / 2]} />
+        <meshStandardMaterial color={hairColor} />
       </mesh>
       
       {/* Staff Hat (Baker style) */}
-      <mesh position={[0, 1.45, 0]}>
-        <cylinderGeometry args={[0.18, 0.15, 0.15, 16]} />
-        <meshStandardMaterial color="#ffffff" />
-      </mesh>
-      <mesh position={[0, 1.38, 0]}>
-        <cylinderGeometry args={[0.22, 0.22, 0.05, 16]} />
-        <meshStandardMaterial color="#ffffff" />
-      </mesh>
+      <group position={[0, 1.4, 0]}>
+        <mesh position={[0, 0.05, 0]}>
+          <cylinderGeometry args={[0.18, 0.15, 0.15, 16]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+        <mesh position={[0, -0.02, 0]}>
+          <cylinderGeometry args={[0.22, 0.22, 0.05, 16]} />
+          <meshStandardMaterial color="#ffffff" />
+        </mesh>
+      </group>
     </group>
   );
 };
@@ -259,7 +277,7 @@ const Bakery3DScene: React.FC<SceneProps> = ({
   const availableBreads = useMemo(() => {
     if (!inventory) return [];
     return (Object.entries(inventory) as [string, number][])
-      .filter(([_, count]) => count > 0)
+      .filter(([, count]) => count > 0)
       .map(([type]) => type as BreadType);
   }, [inventory]);
 

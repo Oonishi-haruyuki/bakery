@@ -12,10 +12,10 @@ import {
   HammerIcon as Hammer
 } from './components/Icon';
 import DailyModal from './components/DailyModal';
-import InventoryItem from './components/InventoryItem';
 import UpgradeModal from './components/UpgradeModal';
+import ReviewsModal from './components/ReviewsModal';
 import Bakery3DScene from './components/Bakery3DScene';
-import { generateDailyReport } from './services/geminiService';
+import { generateDailyReport, generateCustomerReviews } from './services/geminiService';
 import { auth, loginWithGoogle, saveGameState, loadGameState } from './services/firebaseService';
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { 
@@ -59,16 +59,25 @@ const App: React.FC = () => {
     currentMissions: [],
     allMissionsBonusClaimed: false,
     isFeverMode: false,
-    feverEndTime: null
+    feverEndTime: null,
+    reviews: [],
+    latestReviews: []
   });
 
   const [dailyEvent, setDailyEvent] = useState<DailyEvent | null>(null);
   const [loadingDaily, setLoadingDaily] = useState(false);
   const [showUpgrades, setShowUpgrades] = useState(false);
+  const [showReviews, setShowReviews] = useState(false);
+  const [isGeneratingReviews, setIsGeneratingReviews] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [lastSale, setLastSale] = useState<{ id: number; bread: BreadType; timestamp: number } | null>(null);
-
   const addLog = (msg: string) => setLogs(prev => [msg, ...prev].slice(0, 50));
+
+  const stateRef = useRef(gameState);
+  const eventRef = useRef(dailyEvent);
+  
+  useEffect(() => { stateRef.current = gameState; }, [gameState]);
+  useEffect(() => { eventRef.current = dailyEvent; }, [dailyEvent]);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
@@ -98,7 +107,7 @@ const App: React.FC = () => {
   const handleLogin = async () => {
     try {
       await loginWithGoogle();
-    } catch (error) {
+    } catch {
       addLog("ログインに失敗しました。");
     }
   };
@@ -107,7 +116,7 @@ const App: React.FC = () => {
     let extraMoney = 0;
     const nextMissions = prevMissions.map(mission => {
       if (mission.isCleared) return mission;
-      let nextVal = mission.type === 'earn_money' ? currentDailyEarnings : (mission.type === type && (!mission.targetId || mission.targetId === targetId) ? mission.currentValue + increment : mission.currentValue);
+      const nextVal = mission.type === 'earn_money' ? currentDailyEarnings : (mission.type === type && (!mission.targetId || mission.targetId === targetId) ? mission.currentValue + increment : mission.currentValue);
       const isNowCleared = nextVal >= mission.targetValue;
       if (isNowCleared && !mission.isCleared) {
         extraMoney += 50000;
@@ -115,7 +124,7 @@ const App: React.FC = () => {
       }
       return { ...mission, currentValue: nextVal, isCleared: isNowCleared };
     });
-    let allBonus = nextMissions.length > 0 && nextMissions.every(m => m.isCleared) && !nextMissions.every((m, i) => prevMissions[i].isCleared);
+    const allBonus = nextMissions.length > 0 && nextMissions.every(m => m.isCleared) && !nextMissions.every((m, i) => prevMissions[i].isCleared);
     if (allBonus) {
         addLog(`全ミッション達成ボーナス！ (報酬: ¥150,000) & フィーバータイム開始！`);
         extraMoney += 150000;
@@ -253,23 +262,23 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const automationInterval = setInterval(() => {
-      // FIX: Explicitly cast to number to ensure 'staff' value is not treated as unknown
-      const staffVal = gameState.upgrades.staff as number;
+      const { upgrades, bakingStatus, shopLevel, inventory } = stateRef.current;
+      const staffVal = upgrades.staff as number;
       if (staffVal <= 0) return;
       
-      const currentBakingCount = Object.values(gameState.bakingStatus).filter(s => s !== null).length;
-      // FIX: Ensure availableStaff is calculated and checked as a number
+      const currentBakingCount = Object.values(bakingStatus).filter(s => s !== null).length;
       const availableStaff = staffVal - currentBakingCount;
       if (availableStaff <= 0) return;
       
       const lowStockBreads = Object.values(BreadType).filter(type => {
         const recipe = RECIPES[type];
-        return recipe.levelRequired <= gameState.shopLevel && gameState.inventory[type] < 5 && gameState.bakingStatus[type] === null;
+        return recipe.levelRequired <= shopLevel && inventory[type] < 10 && bakingStatus[type] === null;
       });
+      
       lowStockBreads.slice(0, availableStaff).forEach(breadType => startBaking(breadType, true));
     }, 2000);
     return () => clearInterval(automationInterval);
-  }, [gameState.upgrades.staff, gameState.inventory, gameState.bakingStatus, gameState.shopLevel]);
+  }, []); // Only run once on mount
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -323,13 +332,15 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (!gameState.isShopOpen) return;
     const sellInterval = setInterval(() => {
+      if (!stateRef.current.isShopOpen) return;
+      
+      let lastSoldBread: BreadType | null = null;
+
       setGameState(prev => {
         const numBranches = prev.upgrades.branches;
         let moneyEarned = 0;
         let totalProgressGained = 0;
-        let lastSoldBread: BreadType | null = null;
         const currentInventory = { ...prev.inventory };
         const soldHistory: {type: BreadType, count: number}[] = [];
         
@@ -339,11 +350,15 @@ const App: React.FC = () => {
 
         for (let i = 0; i < numBranches; i++) {
             const availableBreads = (Object.keys(currentInventory) as BreadType[]).filter(k => currentInventory[k] > 0);
-            if (availableBreads.length === 0) continue; 
+            if (availableBreads.length === 0) {
+              if (i === 0 && Math.random() < 0.1) addLog("来店中: 本日は売り切れのようです...");
+              continue; 
+            }
             const breadToSell = availableBreads[Math.floor(Math.random() * availableBreads.length)];
             const recipe = RECIPES[breadToSell];
             let sellChance = (0.3 + (prev.reputation / 200)) * (1 + (prev.upgrades.promo * 0.05));
-            if (dailyEvent) { sellChance *= dailyEvent.salesModifier; if (dailyEvent.trend === breadToSell) sellChance *= 1.5; }
+            const currentEvent = eventRef.current;
+            if (currentEvent) { sellChance *= currentEvent.salesModifier; if (currentEvent.trend === breadToSell) sellChance *= 1.5; }
             if (prev.isFeverMode) { sellChance *= 1.5; }
             
             if (Math.random() < sellChance) {
@@ -351,7 +366,7 @@ const App: React.FC = () => {
                 if (Math.random() < Math.min(0.8, prev.upgrades.eatIn * 0.02)) price = Math.floor(price * 1.5);
                 
                 // Calculate level progress bonus
-                const isTrend = dailyEvent?.trend === breadToSell;
+                const isTrend = currentEvent?.trend === breadToSell;
                 const progressForThisSale = (isTrend ? 2 : 1) * brandMultiplier * reputationBonus;
                 
                 moneyEarned += price;
@@ -370,7 +385,7 @@ const App: React.FC = () => {
             const result = processMissionUpdates(nextMissions, 'sell_bread', sh.type, sh.count, nextDailyEarnings);
             nextMissions = result.missions; totalReward += result.reward; if (result.allBonus) allBonus = true;
         });
-        if (lastSoldBread) setLastSale({ id: Date.now() + Math.random(), bread: lastSoldBread, timestamp: Date.now() });
+        
         return { 
           ...prev, 
           money: prev.money + moneyEarned + totalReward, 
@@ -384,9 +399,13 @@ const App: React.FC = () => {
           feverEndTime: (allBonus && !prev.allMissionsBonusClaimed) ? Date.now() + 180000 : prev.feverEndTime
         };
       });
+
+      if (lastSoldBread) {
+        setLastSale({ id: Date.now() + Math.random(), bread: lastSoldBread, timestamp: Date.now() });
+      }
     }, 1000); 
     return () => clearInterval(sellInterval);
-  }, [gameState.isShopOpen, dailyEvent]);
+  }, []); // Run once
 
   const prepareDay = async (targetDay: number) => {
     setLoadingDaily(true);
@@ -400,11 +419,44 @@ const App: React.FC = () => {
   };
 
   const startNextDay = () => prepareDay(gameState.day + 1);
-  const openShop = () => { setGameState(prev => ({ ...prev, isShopOpen: true })); setDailyEvent(null); addLog("開店: お店をオープンしました！"); };
-  const closeShopEarly = () => { 
-    setGameState(prev => ({ ...prev, isShopOpen: false, isFeverMode: false, feverEndTime: null })); 
-    addLog("閉店: 本日の営業を終了しました。"); 
+  const openShop = () => { setGameState(prev => ({ ...prev, isShopOpen: true })); addLog("開店: お店をオープンしました！"); };
+  
+  const closeShopEarly = async () => { 
+    if (!gameState.isShopOpen) return;
+    
+    addLog("閉店準備中: 本日の反響を集計しています...");
+    setIsGeneratingReviews(true);
+    
+    // Simple mock of sales data for review generation
+    // In a real app we'd track exactly which breads were sold today
+    const soldBreads: {breadType: BreadType, count: number}[] = Object.entries(gameState.inventory)
+      .map(([type]) => ({ breadType: type as BreadType, count: Math.floor(Math.random() * 10) + 1 }))
+      .filter(() => Math.random() > 0.5)
+      .slice(0, 3);
+
+    const newReviews = await generateCustomerReviews(
+      gameState.day,
+      soldBreads,
+      gameState.dailyEarnings,
+      dailyEvent?.weather || '晴れ',
+      dailyEvent?.trend || null
+    );
+
+    setGameState(prev => ({ 
+      ...prev, 
+      isShopOpen: false, 
+      isFeverMode: false, 
+      feverEndTime: null,
+      reviews: [...newReviews, ...prev.reviews].slice(0, 50),
+      latestReviews: newReviews
+    })); 
+    
+    setIsGeneratingReviews(false);
+    setShowReviews(true);
+    addLog("閉店: 本日の営業を終了しました。お客様の口コミが届いています！"); 
     if (user) saveGameState(user.uid, gameState);
+    // Clear the daily event only after the shop is fully closed and processed
+    setDailyEvent(null);
   };
 
   useEffect(() => {
@@ -478,6 +530,7 @@ const App: React.FC = () => {
       )}
       {dailyEvent && !loadingDaily && <DailyModal event={dailyEvent} onClose={openShop} />}
       {showUpgrades && <UpgradeModal currentMoney={gameState.money} upgrades={gameState.upgrades} onBuy={buyUpgrade} onClose={() => setShowUpgrades(false)} />}
+      {showReviews && <ReviewsModal reviews={gameState.latestReviews.length > 0 ? gameState.latestReviews : gameState.reviews} onClose={() => setShowReviews(false)} />}
 
       <header className="sticky top-0 z-10 bg-white/90 backdrop-blur-md border-b border-amber-200 shadow-sm px-4 py-3">
         <div className="max-w-7xl mx-auto flex justify-between items-center">
@@ -578,6 +631,18 @@ const App: React.FC = () => {
                 </div>
             </section>
 
+            <section className="bg-white rounded-2xl shadow-sm border border-amber-100 p-5 hidden md:block overflow-hidden h-[30vh]">
+                <h2 className="text-xs font-bold text-amber-900 mb-2 flex items-center gap-2 uppercase tracking-widest opacity-50">Log Feed</h2>
+                <div className="space-y-1 h-full overflow-y-auto custom-scrollbar pr-2">
+                  {logs.map((log, i) => (
+                    <div key={i} className="text-[10px] text-stone-600 border-l-2 border-amber-200 pl-2 py-0.5 animate-in slide-in-from-left duration-300">
+                      {log}
+                    </div>
+                  ))}
+                  {logs.length === 0 && <div className="text-[10px] text-stone-300 italic">No activity logs yet...</div>}
+                </div>
+            </section>
+
             <section className="bg-white rounded-2xl shadow-sm border border-amber-200 p-5 relative">
                 <div className="flex justify-between items-center mb-4">
                   <h2 className="text-lg font-bold text-amber-900 flex items-center gap-2"><TrendingUp className="w-5 h-5 text-amber-600" /> 目標</h2>
@@ -608,9 +673,31 @@ const App: React.FC = () => {
                 </div>
                 <div className="mt-4 flex flex-col gap-2">
                     {gameState.isShopOpen ? (
-                        <button onClick={closeShopEarly} className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-xl text-xs border border-red-200">営業終了</button>
+                        <button 
+                          onClick={closeShopEarly} 
+                          disabled={isGeneratingReviews}
+                          className="w-full py-2 bg-red-50 hover:bg-red-100 text-red-700 font-bold rounded-xl text-xs border border-red-200 disabled:opacity-50 disabled:cursor-wait flex items-center justify-center gap-2"
+                        >
+                          {isGeneratingReviews ? (
+                            <>
+                              <Icons.Loader2 className="w-3 h-3 animate-spin" />
+                              集計中...
+                            </>
+                          ) : '営業終了'}
+                        </button>
                     ) : (
-                        <button onClick={startNextDay} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm transition-all active:scale-95">翌日の準備へ <Sun className="w-4 h-4" /></button>
+                        <>
+                          <button onClick={startNextDay} className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 text-sm transition-all active:scale-95">翌日の準備へ <Sun className="w-4 h-4" /></button>
+                          {gameState.reviews.length > 0 && (
+                            <button 
+                              onClick={() => setShowReviews(true)} 
+                              className="w-full py-2 bg-amber-50 hover:bg-amber-100 text-amber-700 font-bold rounded-xl text-xs border border-amber-200 flex items-center justify-center gap-2"
+                            >
+                              <Icons.MessageSquare className="w-4 h-4" />
+                              お客様の口コミを見る
+                            </button>
+                          )}
+                        </>
                     )}
                 </div>
             </section>

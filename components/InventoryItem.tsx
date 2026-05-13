@@ -1,6 +1,4 @@
 import React from 'react';
-import { BreadType, IngredientType } from '../types';
-import { Icons } from './Icon';
 
 interface Props {
   name: string;
