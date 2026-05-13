@@ -1,0 +1,34 @@
+{
+  "name": "ai-bakery:-komugi-no-uta",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "tsc --noEmit && eslint . --ext .js,.ts,.tsx,.rules",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@google/genai": "^1.0.0",
+    "@react-three/drei": "^9.108.0",
+    "@react-three/fiber": "^8.16.8",
+    "@tailwindcss/vite": "^4.3.0",
+    "eslint-plugin-react": "^7.37.5",
+    "firebase": "^12.13.0",
+    "lucide-react": "0.454.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^4.3.0",
+    "three": "^0.160.0",
+    "typescript-eslint": "^8.59.3"
+  },
+  "devDependencies": {
+    "@firebase/eslint-plugin-security-rules": "^0.0.2",
+    "@types/node": "^22.14.0",
+    "@types/three": "^0.184.1",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

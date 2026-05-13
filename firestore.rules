@@ -1,0 +1,85 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // --- Entity Validations ---
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['email', 'createdAt']) &&
+             data.keys().size() <= 4 &&
+             data.email is string && data.email.size() <= 256 &&
+             data.createdAt is timestamp &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 100));
+    }
+
+    function isValidGameState(data) {
+      return data.keys().hasAll(['userId', 'money', 'day', 'shopLevel', 'updatedAt']) &&
+             data.userId == request.auth.uid &&
+             data.money is number && data.money >= 0 &&
+             data.day is int && data.day >= 1 &&
+             data.shopLevel is int && data.shopLevel >= 1 &&
+             data.updatedAt == request.time &&
+             data.ingredients is map &&
+             data.inventory is map &&
+             data.currentMissions is list &&
+             data.currentMissions.size() <= 10;
+    }
+
+    // --- Rules ---
+
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming()) && 
+                    incoming().email == existing().email &&
+                    incoming().createdAt == existing().createdAt &&
+                    incoming().diff(existing()).affectedKeys().hasOnly(['displayName']);
+    }
+
+    match /gameStates/{userId} {
+      allow get: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidGameState(incoming());
+      allow update: if isOwner(userId) && isValidGameState(incoming()) &&
+                    incoming().userId == existing().userId &&
+                    (
+                      // Regular gameplay updates
+                      incoming().diff(existing()).affectedKeys().hasAny([
+                        'money', 'dailyEarnings', 'reputation', 'shopLevel', 
+                        'levelProgressSales', 'ingredients', 'ingredientLimits', 
+                        'inventory', 'isShopOpen', 'bakingStatus', 'upgrades', 
+                        'currentMissions', 'allMissionsBonusClaimed', 'updatedAt'
+                      ])
+                    );
+    }
+  }
+}

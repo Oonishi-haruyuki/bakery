@@ -1,0 +1,5 @@
+{
+  "name": "AI Bakery: Komugi no Uta",
+  "description": "An immersive bakery management simulator where AI generates daily trends, weather conditions, and customer reviews that affect your sales.",
+  "requestFramePermissions": []
+}
