@@ -20,7 +20,13 @@ import {
   Coffee,
   Loader2,
   MessageSquare,
-  RotateCcw
+  RotateCcw,
+  FlaskConical,
+  Tag,
+  X,
+  Check,
+  Beaker,
+  Thermometer
 } from 'lucide-react';
 
 export const WheatIcon = Wheat;
@@ -45,6 +51,12 @@ export const CoffeeIcon = Coffee;
 export const Loader2Icon = Loader2;
 export const MessageSquareIcon = MessageSquare;
 export const RotateCcwIcon = RotateCcw;
+export const FlaskConicalIcon = FlaskConical;
+export const TagIcon = Tag;
+export const XIcon = X;
+export const CheckIcon = Check;
+export const BeakerIcon = Beaker;
+export const ThermometerIcon = Thermometer;
 
 // Keep Icons object for backward compatibility but use the icon components explicitly
 export const Icons = {
@@ -69,5 +81,11 @@ export const Icons = {
   Coffee: CoffeeIcon,
   Loader2: Loader2Icon,
   MessageSquare: MessageSquareIcon,
-  RotateCcw: RotateCcwIcon
+  RotateCcw: RotateCcwIcon,
+  FlaskConical: FlaskConicalIcon,
+  Tag: TagIcon,
+  X: XIcon,
+  Check: CheckIcon,
+  Beaker: BeakerIcon,
+  Thermometer: ThermometerIcon
 };

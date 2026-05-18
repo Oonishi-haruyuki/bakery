@@ -9,11 +9,13 @@ import {
   TrendingUpIcon as TrendingUp,
   ZapIcon as Zap,
   SunIcon as Sun,
-  HammerIcon as Hammer
+  HammerIcon as Hammer,
+  FlaskConicalIcon as Flask,
 } from './components/Icon';
 import DailyModal from './components/DailyModal';
 import UpgradeModal from './components/UpgradeModal';
 import ReviewsModal from './components/ReviewsModal';
+import LabModal from './components/LabModal';
 import Bakery3DScene from './components/Bakery3DScene';
 import { generateDailyReport, generateCustomerReviews } from './services/geminiService';
 import { auth, loginWithGoogle, saveGameState, loadGameState, testConnection } from './services/firebaseService';
@@ -60,7 +62,9 @@ const INITIAL_GAME_STATE: GameState = {
   reviews: [],
   latestReviews: [],
   currentDayOpenTime: 0,
-  lastOpenTimestamp: null
+  lastOpenTimestamp: null,
+  discoveredBreads: [BreadType.SHOKUPAN, BreadType.ANPAN],
+  customPrices: Object.values(BreadType).reduce((acc, type) => ({ ...acc, [type]: RECIPES[type].basePrice }), {} as Record<BreadType, number>),
 };
 
 const App: React.FC = () => {
@@ -73,6 +77,7 @@ const App: React.FC = () => {
   const [loadingDaily, setLoadingDaily] = useState(false);
   const [showUpgrades, setShowUpgrades] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
+  const [showLab, setShowLab] = useState(false);
   const [isGeneratingReviews, setIsGeneratingReviews] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [lastSale, setLastSale] = useState<{ id: number; bread: BreadType; timestamp: number } | null>(null);
@@ -113,6 +118,8 @@ const App: React.FC = () => {
             bakingStatus: (saved.bakingStatus ? { ...prev.bakingStatus, ...saved.bakingStatus } : prev.bakingStatus),
             reviews: saved.reviews || prev.reviews,
             latestReviews: saved.latestReviews || prev.latestReviews,
+            discoveredBreads: saved.discoveredBreads || prev.discoveredBreads,
+            customPrices: (saved.customPrices ? { ...prev.customPrices, ...saved.customPrices } : prev.customPrices),
           } as GameState));
           addLog("データの同期が完了しました。");
         }
@@ -383,16 +390,28 @@ const App: React.FC = () => {
             }
             const breadToSell = availableBreads[Math.floor(Math.random() * availableBreads.length)];
             const recipe = RECIPES[breadToSell];
-            let sellChance = (0.3 + (prev.reputation / 200)) * (1 + (prev.upgrades.promo * 0.05));
+            const customPrice = prev.customPrices[breadToSell] || recipe.basePrice;
+            
+            // Pricing effect: base price is the "fair" price. 
+            // If price is higher, sell chance drops. If lower, it rises.
+            const priceRatio = customPrice / recipe.basePrice;
+            let priceModifier = 1.0;
+            if (priceRatio > 1.0) {
+              priceModifier = Math.max(0.1, 1.0 - (priceRatio - 1.0) * 2); // Steep drop
+            } else if (priceRatio < 1.0) {
+              priceModifier = 1.0 + (1.0 - priceRatio) * 0.5; // Slight boost
+            }
+
+            let sellChance = (0.3 + (prev.reputation / 200)) * (1 + (prev.upgrades.promo * 0.05)) * priceModifier;
             const currentEvent = eventRef.current;
             if (currentEvent) { sellChance *= currentEvent.salesModifier; if (currentEvent.trend === breadToSell) sellChance *= 1.5; }
             if (prev.isFeverMode) { sellChance *= 1.5; }
             
             if (Math.random() < sellChance) {
-                let price = recipe.basePrice;
+                let price = customPrice;
                 if (Math.random() < Math.min(0.8, prev.upgrades.eatIn * 0.02)) price = Math.floor(price * 1.5);
                 
-                // Calculate level progress bonus
+                // Calculate level progress bonus (affected by pricing reputation)
                 const isTrend = currentEvent?.trend === breadToSell;
                 const progressForThisSale = (isTrend ? 2 : 1) * brandMultiplier * reputationBonus;
                 
@@ -484,6 +503,7 @@ const App: React.FC = () => {
     setShowDailyModal(false);
     setShowReviews(false);
     setShowUpgrades(false);
+    setShowLab(false);
     
     addLog("システム: データをすべてリセットし、初日から再スタートします。");
     
@@ -620,6 +640,28 @@ const App: React.FC = () => {
         </div>
       )}
       {dailyEvent && showDailyModal && !loadingDaily && <DailyModal event={dailyEvent} onClose={openShop} />}
+      {showLab && (
+        <LabModal 
+          gameState={gameState} 
+          onClose={() => setShowLab(false)}
+          onDiscover={(breadType) => {
+            setGameState(prev => ({ 
+              ...prev, 
+              discoveredBreads: [...new Set([...prev.discoveredBreads, breadType])] 
+            }));
+            addLog(`新レシピ発見: ${RECIPES[breadType].name} が工房に追加されました！`);
+          }}
+          onConsumeIngredients={(ingredients) => {
+            setGameState(prev => {
+              const nextIngredients = { ...prev.ingredients };
+              Object.entries(ingredients).forEach(([type, amount]) => {
+                nextIngredients[type as IngredientType] -= amount;
+              });
+              return { ...prev, ingredients: nextIngredients };
+            });
+          }}
+        />
+      )}
       {showUpgrades && <UpgradeModal currentMoney={gameState.money} upgrades={gameState.upgrades} onBuy={buyUpgrade} onClose={() => setShowUpgrades(false)} />}
       {showReviews && <ReviewsModal reviews={gameState.latestReviews.length > 0 ? gameState.latestReviews : gameState.reviews} onClose={() => setShowReviews(false)} />}
 
@@ -673,28 +715,66 @@ const App: React.FC = () => {
       <main className="max-w-7xl mx-auto p-4 grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="space-y-6">
             <section className="bg-white rounded-2xl shadow-sm border border-amber-100 p-5">
-                <h2 className="text-lg font-bold text-amber-900 mb-4 flex items-center gap-2"><ChefHat className="w-5 h-5 text-amber-600" />工房</h2>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-lg font-bold text-amber-900 flex items-center gap-2"><ChefHat className="w-5 h-5 text-amber-600" />工房</h2>
+                  <button 
+                    onClick={() => setShowLab(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-full transition-all active:scale-90 shadow-md group"
+                  >
+                    <Flask className="w-4 h-4 group-hover:animate-bounce" />
+                    <span className="text-[10px] font-bold">開発ラボ</span>
+                  </button>
+                </div>
                 <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-2 custom-scrollbar">
-                    {Object.values(RECIPES).filter(r => r.levelRequired <= gameState.shopLevel).map(recipe => (
-                        <div key={recipe.id} className="border border-stone-200 rounded-xl p-4 bg-stone-50 hover:border-amber-200 transition-colors">
-                            <div className="flex justify-between items-start mb-2">
-                                <h3 className="font-bold text-stone-800 text-sm">{recipe.name}</h3>
-                                <div className="bg-amber-100 px-2 py-0.5 rounded text-[10px] font-bold text-amber-700">在庫: {gameState.inventory[recipe.id]}</div>
-                            </div>
-                            <div className="flex flex-wrap gap-1 mb-3">
-                                {Object.entries(recipe.ingredients).map(([ing, amount]) => (
-                                    <span key={ing} className={`text-[9px] px-1.5 py-0.5 rounded ${gameState.ingredients[ing as IngredientType] < (amount || 0) ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-green-50 text-green-700 border border-green-100'}`}>
-                                        {INGREDIENTS_DATA[ing as IngredientType].name} x{amount}
-                                    </span>
-                                ))}
-                            </div>
-                            {gameState.bakingStatus[recipe.id] !== null ? (
-                                <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden"><div className="bg-amber-500 h-full relative" style={{ width: `${gameState.bakingStatus[recipe.id]}%` }}><div className="absolute inset-0 bg-white/20 animate-pulse"></div></div></div>
-                            ) : (
-                                <button onClick={() => startBaking(recipe.id)} className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg text-xs shadow-sm">パンを焼く</button>
-                            )}
-                        </div>
-                    ))}
+                    {gameState.discoveredBreads.map(breadType => {
+                        const recipe = RECIPES[breadType];
+                        const customPrice = gameState.customPrices[breadType] || recipe.basePrice;
+                        return (
+                          <div key={recipe.id} className="border border-stone-200 rounded-xl p-4 bg-stone-50 hover:border-amber-200 transition-colors">
+                              <div className="flex justify-between items-start mb-2">
+                                  <h3 className="font-bold text-stone-800 text-sm">{recipe.name}</h3>
+                                  <div className="bg-amber-100 px-2 py-0.5 rounded text-[10px] font-bold text-amber-700">在庫: {gameState.inventory[recipe.id]}</div>
+                              </div>
+                              
+                              <div className="mb-3 p-2 bg-white rounded-lg border border-stone-100 flex items-center justify-between">
+                                <div className="text-[10px] font-bold text-stone-400">販売価格</div>
+                                <div className="flex items-center gap-2">
+                                  <button 
+                                    onClick={() => {
+                                      const nextPrice = Math.max(10, customPrice - 10);
+                                      setGameState(prev => ({ ...prev, customPrices: { ...prev.customPrices, [breadType]: nextPrice } }));
+                                    }}
+                                    className="w-6 h-6 bg-stone-100 rounded flex items-center justify-center text-stone-600"
+                                  >
+                                    -
+                                  </button>
+                                  <div className="text-xs font-black text-amber-600">¥{customPrice.toLocaleString()}</div>
+                                  <button 
+                                    onClick={() => {
+                                      const nextPrice = customPrice + 10;
+                                      setGameState(prev => ({ ...prev, customPrices: { ...prev.customPrices, [breadType]: nextPrice } }));
+                                    }}
+                                    className="w-6 h-6 bg-stone-100 rounded flex items-center justify-center text-stone-600"
+                                  >
+                                    +
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div className="flex flex-wrap gap-1 mb-3">
+                                  {Object.entries(recipe.ingredients).map(([ing, amount]) => (
+                                      <span key={ing} className={`text-[9px] px-1.5 py-0.5 rounded ${gameState.ingredients[ing as IngredientType] < (amount || 0) ? 'bg-red-50 text-red-600 border border-red-100' : 'bg-green-50 text-green-700 border border-green-100'}`}>
+                                          {INGREDIENTS_DATA[ing as IngredientType].name} x{amount}
+                                      </span>
+                                  ))}
+                              </div>
+                              {gameState.bakingStatus[recipe.id] !== null ? (
+                                  <div className="w-full bg-gray-200 rounded-full h-3 overflow-hidden"><div className="bg-amber-500 h-full relative" style={{ width: `${gameState.bakingStatus[recipe.id]}%` }}><div className="absolute inset-0 bg-white/20 animate-pulse"></div></div></div>
+                              ) : (
+                                  <button onClick={() => startBaking(recipe.id)} className="w-full py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg text-xs shadow-sm">パンを焼く</button>
+                              )}
+                          </div>
+                    )})}
                 </div>
             </section>
 
