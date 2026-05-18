@@ -45,14 +45,12 @@ service cloud.firestore {
     function isValidGameState(data) {
       return data.keys().hasAll(['userId', 'money', 'day', 'shopLevel', 'updatedAt']) &&
              data.userId == request.auth.uid &&
-             data.money is number && data.money >= 0 &&
-             data.day is int && data.day >= 1 &&
-             data.shopLevel is int && data.shopLevel >= 1 &&
+             data.money is number && 
+             data.day is number && 
+             data.shopLevel is number &&
              data.updatedAt == request.time &&
              data.ingredients is map &&
-             data.inventory is map &&
-             data.currentMissions is list &&
-             data.currentMissions.size() <= 10;
+             data.inventory is map;
     }
 
     // --- Rules ---
@@ -74,16 +72,7 @@ service cloud.firestore {
       allow get: if isOwner(userId);
       allow create: if isOwner(userId) && isValidGameState(incoming());
       allow update: if isOwner(userId) && isValidGameState(incoming()) &&
-                    incoming().userId == existing().userId &&
-                    (
-                      // Regular gameplay updates
-                      incoming().diff(existing()).affectedKeys().hasAny([
-                        'money', 'dailyEarnings', 'reputation', 'shopLevel', 
-                        'levelProgressSales', 'ingredients', 'ingredientLimits', 
-                        'inventory', 'isShopOpen', 'bakingStatus', 'upgrades', 
-                        'currentMissions', 'allMissionsBonusClaimed', 'updatedAt'
-                      ])
-                    );
+                    incoming().userId == existing().userId;
     }
   }
 }

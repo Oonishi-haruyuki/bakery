@@ -273,6 +273,8 @@ interface SceneProps {
   staffCount?: number;
   cameraPosition?: [number, number, number];
   cameraFov?: number;
+  dayProgress?: number;
+  isShopOpen?: boolean;
 }
 
 const Bakery3DScene: React.FC<SceneProps> = ({ 
@@ -281,9 +283,62 @@ const Bakery3DScene: React.FC<SceneProps> = ({
   eatInLevel = 0,
   staffCount = 0,
   cameraPosition = [0, 5, 8],
-  cameraFov = 45
+  cameraFov = 45,
+  dayProgress = 0,
+  isShopOpen = false
 }) => {
   const [customers, setCustomers] = useState<{ id: number; bread: BreadType }[]>([]);
+
+  // Time-of-day lighting calculation
+  const atmosphericData = useMemo(() => {
+    const time = isShopOpen ? dayProgress : 1.0; // Closed = Night state
+
+    // Colors for different times
+    const colors = {
+      morning: new THREE.Color('#ff9a76'), // Warm coral
+      noon: new THREE.Color('#87ceeb'),    // Clear sky blue
+      evening: new THREE.Color('#ff5e00'),  // Deep sunset orange
+      night: new THREE.Color('#0b0b1a'),   // Midnight navy
+    };
+
+    let bgColor: THREE.Color;
+    let sunColor: THREE.Color;
+    let sunIntensity: number;
+    let sunPos: [number, number, number];
+    let ambientIntensity: number;
+
+    if (time < 0.2) { // Dawn to Morning
+      const t = time / 0.2;
+      bgColor = colors.night.clone().lerp(colors.morning, t);
+      sunColor = new THREE.Color('#ffccaa');
+      sunIntensity = 0.5 * t;
+      sunPos = [5, 2, 5];
+      ambientIntensity = 0.2 + 0.3 * t;
+    } else if (time < 0.7) { // Morning to Noon
+      const t = (time - 0.2) / 0.5;
+      bgColor = colors.morning.clone().lerp(colors.noon, t);
+      sunColor = new THREE.Color('#ffffff');
+      sunIntensity = 0.5 + 0.7 * t;
+      sunPos = [5 - 10 * t, 10, 5];
+      ambientIntensity = 0.5 + 0.2 * t;
+    } else if (time < 0.9) { // Noon to Evening
+      const t = (time - 0.7) / 0.2;
+      bgColor = colors.noon.clone().lerp(colors.evening, t);
+      sunColor = colors.evening.clone();
+      sunIntensity = 1.2 - 0.4 * t;
+      sunPos = [-5, 4, 5];
+      ambientIntensity = 0.7 - 0.3 * t;
+    } else { // Evening to Night
+      const t = (time - 0.9) / 0.1;
+      bgColor = colors.evening.clone().lerp(colors.night, t);
+      sunColor = new THREE.Color('#4455aa');
+      sunIntensity = 0.8 * (1 - t);
+      sunPos = [-5, 1, 5];
+      ambientIntensity = 0.4 - 0.2 * t;
+    }
+
+    return { bgColor, sunColor, sunIntensity, sunPos, ambientIntensity, time };
+  }, [dayProgress, isShopOpen]);
 
   useEffect(() => {
     if (lastSale) {
@@ -318,9 +373,22 @@ const Bakery3DScene: React.FC<SceneProps> = ({
 
   return (
     <Canvas shadows camera={{ position: cameraPosition, fov: cameraFov }}>
-      <color attach="background" args={['#1a1a1a']} />
-      <ambientLight intensity={0.5} color="#fff7ed" />
-      <directionalLight position={[5, 10, 5]} intensity={1.0} castShadow />
+      <color attach="background" args={[atmosphericData.bgColor]} />
+      <ambientLight intensity={atmosphericData.ambientIntensity} color="#fff7ed" />
+      <directionalLight 
+        position={atmosphericData.sunPos} 
+        intensity={atmosphericData.sunIntensity} 
+        color={atmosphericData.sunColor}
+        castShadow 
+        shadow-mapSize={[1024, 1024]}
+      />
+      
+      {/* Indoor Warm Lamp (mostly for evening/night) */}
+      <pointLight 
+        position={[0, 3, 0]} 
+        intensity={atmosphericData.time > 0.7 ? 0.8 : 0.2} 
+        color="#ffccaa" 
+      />
       
       {/* Staff Area */}
       {Array.from({ length: staffCount }).map((_, i) => (

@@ -17,6 +17,7 @@ import UpgradeModal from './components/UpgradeModal';
 import ReviewsModal from './components/ReviewsModal';
 import LabModal from './components/LabModal';
 import Bakery3DScene from './components/Bakery3DScene';
+import { Howl } from 'howler';
 import { generateDailyReport, generateCustomerReviews } from './services/geminiService';
 import { auth, loginWithGoogle, saveGameState, loadGameState, testConnection } from './services/firebaseService';
 import { onAuthStateChanged, type User } from 'firebase/auth';
@@ -78,9 +79,90 @@ const App: React.FC = () => {
   const [showUpgrades, setShowUpgrades] = useState(false);
   const [showReviews, setShowReviews] = useState(false);
   const [showLab, setShowLab] = useState(false);
+  const [dayProgress, setDayProgress] = useState(0); // 0 to 1
   const [isGeneratingReviews, setIsGeneratingReviews] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
   const [lastSale, setLastSale] = useState<{ id: number; bread: BreadType; timestamp: number } | null>(null);
+  useEffect(() => {
+    if (!gameState.isShopOpen) {
+      setDayProgress(0);
+      return;
+    }
+    const BUSINESS_DAY_DURATION = 180000; // 3 minutes cycle
+    const interval = setInterval(() => {
+      if (gameState.lastOpenTimestamp) {
+        const elapsed = Date.now() - gameState.lastOpenTimestamp;
+        const progress = Math.min(1, elapsed / BUSINESS_DAY_DURATION);
+        setDayProgress(progress);
+      }
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [gameState.isShopOpen, gameState.lastOpenTimestamp]);
+
+  // Background Music Manager
+  const bgmRef = useRef<Record<string, Howl | null>>({});
+  const currentMoodRef = useRef<string>('');
+
+  useEffect(() => {
+    const bgmUrls = {
+      closed: 'https://assets.mixkit.co/music/preview/mixkit-beautiful-dream-493.mp3',
+      morning: 'https://assets.mixkit.co/music/preview/mixkit-morning-coffee-vibes-491.mp3',
+      noon: 'https://assets.mixkit.co/music/preview/mixkit-sunny-day-track-571.mp3',
+      evening: 'https://assets.mixkit.co/music/preview/mixkit-relaxing-at-the-fireplace-648.mp3',
+    };
+
+    let mood = 'closed';
+    if (gameState.isShopOpen) {
+      if (dayProgress < 0.2) mood = 'morning';
+      else if (dayProgress < 0.7) mood = 'noon';
+      else mood = 'evening';
+    }
+
+    if (mood !== currentMoodRef.current) {
+      const oldMood = currentMoodRef.current;
+      const oldTrack = bgmRef.current[oldMood];
+      
+      if (oldTrack) {
+        oldTrack.fade(oldTrack.volume(), 0, 2000);
+        setTimeout(() => {
+          oldTrack.pause(); // Pause instead of stop to allow potential reuse or just unload
+        }, 2000);
+      }
+
+      let newTrack = bgmRef.current[mood];
+      if (!newTrack) {
+        newTrack = new Howl({
+          src: [bgmUrls[mood as keyof typeof bgmUrls]],
+          loop: true,
+          volume: 0,
+          html5: true,
+          preload: true
+        });
+        bgmRef.current[mood] = newTrack;
+      }
+
+      newTrack.play();
+      newTrack.fade(0, 0.4, 2000);
+      currentMoodRef.current = mood;
+    }
+
+    return () => {
+      // Cleanup on unmount only if we want to stop everything
+    };
+  }, [gameState.isShopOpen, dayProgress > 0.2, dayProgress > 0.7]);
+
+  // Global cleanup for BGM on unmount
+  useEffect(() => {
+    return () => {
+      Object.values(bgmRef.current).forEach(track => {
+        if (track) {
+          track.stop();
+          track.unload();
+        }
+      });
+    };
+  }, []);
+
   const [connectionStatus, setConnectionStatus] = useState<'testing' | 'online' | 'offline'>('testing');
   const addLog = (msg: string) => setLogs(prev => [msg, ...prev].slice(0, 50));
 
@@ -256,6 +338,17 @@ const App: React.FC = () => {
       const bonusMoney = nextLevel * 50000;
       addLog(`RANK UP!: お店がランク${nextLevel}になりました！ お祝い金 ¥${bonusMoney.toLocaleString()} 獲得！`);
       
+      // Auto-unlock first recipe of the new level if exists
+      const recipesToUnlock = Object.values(RECIPES).filter(r => r.levelRequired === nextLevel);
+      const nextDiscovered = [...prev.discoveredBreads];
+      if (recipesToUnlock.length > 0) {
+        const autoUnlock = recipesToUnlock[0];
+        if (!nextDiscovered.includes(autoUnlock.id)) {
+          nextDiscovered.push(autoUnlock.id);
+          addLog(`新メニュー解放: 「${autoUnlock.name}」を焼けるようになりました！`);
+        }
+      }
+
       // Fully restock all ingredients as a reward
       const restockedIngredients = { ...prev.ingredients };
       Object.keys(prev.ingredients).forEach(key => {
@@ -269,9 +362,21 @@ const App: React.FC = () => {
         shopLevel: nextLevel,
         levelProgressSales: 0,
         money: prev.money + bonusMoney,
-        ingredients: restockedIngredients
+        ingredients: restockedIngredients,
+        discoveredBreads: nextDiscovered
       };
     });
+  };
+
+  const buyRecipe = (breadType: BreadType, cost: number) => {
+    if (gameState.money >= cost) {
+      setGameState(prev => ({
+        ...prev,
+        money: prev.money - cost,
+        discoveredBreads: [...new Set([...prev.discoveredBreads, breadType])]
+      }));
+      addLog(`レシピ購入: 「${RECIPES[breadType].name}」のレシピを購入しました (-¥${cost.toLocaleString()})`);
+    }
   };
 
   const startBaking = (breadType: BreadType, isAuto = false) => {
@@ -644,6 +749,7 @@ const App: React.FC = () => {
         <LabModal 
           gameState={gameState} 
           onClose={() => setShowLab(false)}
+          onBuyRecipe={buyRecipe}
           onDiscover={(breadType) => {
             setGameState(prev => ({ 
               ...prev, 
@@ -815,7 +921,16 @@ const App: React.FC = () => {
                                 <span className="bg-black/60 text-white text-[8px] px-1.5 py-0.5 rounded font-mono uppercase tracking-tighter">{cam.name}</span>
                                 {gameState.isShopOpen && <div className="flex items-center gap-1 bg-red-600/40 px-1.5 py-0.5 rounded"><div className="w-1 h-1 rounded-full bg-red-500 animate-pulse"></div><span className="text-white text-[7px] font-bold font-mono">LIVE</span></div>}
                             </div>
-                            <Bakery3DScene lastSale={lastSale} inventory={gameState.inventory} eatInLevel={gameState.upgrades.eatIn} staffCount={gameState.upgrades.staff} cameraPosition={cam.pos} cameraFov={cam.fov}/>
+                            <Bakery3DScene 
+                              lastSale={lastSale} 
+                              inventory={gameState.inventory} 
+                              eatInLevel={gameState.upgrades.eatIn} 
+                              staffCount={gameState.upgrades.staff} 
+                              cameraPosition={cam.pos} 
+                              cameraFov={cam.fov}
+                              dayProgress={dayProgress}
+                              isShopOpen={gameState.isShopOpen}
+                            />
                         </div>
                     ))}
                 </div>

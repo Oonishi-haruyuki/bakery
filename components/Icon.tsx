@@ -26,7 +26,8 @@ import {
   X,
   Check,
   Beaker,
-  Thermometer
+  Thermometer,
+  Info
 } from 'lucide-react';
 
 export const WheatIcon = Wheat;
@@ -57,6 +58,7 @@ export const XIcon = X;
 export const CheckIcon = Check;
 export const BeakerIcon = Beaker;
 export const ThermometerIcon = Thermometer;
+export const InfoIcon = Info;
 
 // Keep Icons object for backward compatibility but use the icon components explicitly
 export const Icons = {
@@ -87,5 +89,6 @@ export const Icons = {
   X: XIcon,
   Check: CheckIcon,
   Beaker: BeakerIcon,
-  Thermometer: ThermometerIcon
+  Thermometer: ThermometerIcon,
+  Info: InfoIcon
 };
